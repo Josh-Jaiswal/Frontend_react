@@ -1,23 +1,28 @@
-// lib/api/client.ts
+Add this to next.config.js:
+/** @type {import('next').NextConfig} */
+const nextConfig = {
+  async rewrites() {
+    return [
+      {
+        source: '/analyze',
+        destination: 'http://localhost:8000/analyze',
+      },
+      {
+        source: '/jobs/:path*',
+        destination: 'http://localhost:8000/jobs/:path*',
+      },
+      {
+        source: '/download/:path*',
+        destination: 'http://localhost:8000/download/:path*',
+      },
+    ];
+  },
+};
 
-export const apiClient = async (endpoint: string, options: RequestInit = {}) => {
-  const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
-  const API_KEY = process.env.NEXT_PUBLIC_API_KEY || 'GoldenEY1479'
-
-  console.log("API KEY BEING SENT:", API_KEY) // debug
-
-  const res = await fetch(`${API_URL}${endpoint}`, {
-    ...options,
-    headers: {
-      ...(options.headers || {}),
-      'X-API-Key': API_KEY,
-    },
-  })
-
-  if (!res.ok) {
-    const text = await res.text()
-    throw new Error(text)
-  }
-
-  return res
-}
+module.exports = nextConfig;
+Then in lib/api/client.ts, change the base path so it uses relative URLs (letting the rewrite handle routing):
+// lib/env.ts — change API_URL for client-side calls
+export const API_URL =
+  typeof window !== 'undefined'
+    ? ''           // ← relative URL, rewrite handles it
+    : process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
