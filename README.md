@@ -1,44 +1,30 @@
-The page is stuck on "Loading job workspace…" even though the backend completed successfully (NDA + SOW both generated, job complete). The loading spinner never stops.
+No console logs means the `useEffect` is never running — which means `jobId` from `use(params)` is still `undefined` or the component is suspending before the effect fires.
 
-The issue is that the job completed **before** the page loaded, so the polling never fires an update — and the initial load fetched the job as `complete` but is probably hanging on `fetchCanonicalBlob`.
+The console only shows Fast Refresh logs, nothing from your load function. This means `use(params)` is causing a Suspense boundary to catch it before effects run.
 
-Add this console log immediately to find where it's stuck. In `page.tsx` inside the `load` function:
+**The real fix — stop using `use(params)` and read from `useParams()` instead:**
 
-```ts
-const load = async () => {
-  setLoading(true);
-  setError(null);
-  try {
-    console.log('1. fetching job...');
-    const result = await getJob(jobId);
-    console.log('2. job result:', result.status);
-    setJob(result);
+```tsx
+'use client';
 
-    if (result.status === 'complete') {
-      console.log('3. fetching canonical...');
-      const c = await loadCanonical();
-      console.log('4. canonical:', c);
-      if (mounted) setCanonical(c);
-    }
-  } catch (err) {
-    console.error('load error:', err);
-    // ...
-  } finally {
-    console.log('5. setting loading false');
-    if (mounted) setLoading(false);
-  }
-};
+import { useParams } from 'next/navigation'; // ← change this import
+// remove: import { use, ... } — remove 'use' from react imports
+
+export default function JobPage() { // ← no props at all
+  const params = useParams();
+  const jobId = params.jobId as string;
+
+  console.log('jobId from useParams:', jobId); // should now log correctly
+
+  // ... rest of component unchanged
 ```
 
-Open browser console and tell me which number it stops at. My bet is it stops at **3** — meaning `fetchCanonicalBlob` is hanging or throwing silently, and `loadCanonical` swallows the error and returns `null`, but something else is blocking `setLoading(false)`.
+`useParams()` is the correct way to read dynamic route params in a `'use client'` component in Next.js 15. The `use(params)` pattern requires a Suspense boundary wrapping the component, which you don't have — so it silently suspends forever and effects never run.
 
-Also check your `next.config.js` — make sure this rewrite exists:
+Make these two changes:
 
-```js
-{
-  source: '/api/download/:path*',
-  destination: 'http://localhost:8000/download/:path*',
-}
-```
+1. Remove `params` from the function signature entirely
+2. Add `const params = useParams()` at the top
+3. Remove `use` from react imports, add `useParams` from `next/navigation`
 
-Without it, `fetchCanonicalBlob` hits a 404 silently and the try/catch in `loadCanonical` catches it, returns `null`, but if there's any other await after that hanging, `setLoading(false)` in `finally` never runs. Share what the console shows.
+The rest of your page code stays exactly the same. Save, let it hot reload, and your console logs should appear immediately.
