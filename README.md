@@ -1,55 +1,33 @@
-`types.ts` and `jobs.ts` are both correct. `job_id` is properly typed, `listJobs` returns `JobsListResponse` with a `jobs` array.
+Good progress — the routing is now working (200 responses, correct job ID in the URL, no more `undefined`). The page is blank because `ContractViewer` is rendering nothing.
 
-The bug is in **`useJobList.ts`** — I'd bet it's doing `setJobs(res)` instead of `setJobs(res.jobs)`. Go check that file right now:
+The page is loading but the content isn't showing. I need to see these files to fix it:
 
-```ts
-// ❌ This sets jobs to the whole response object { total, jobs: [...] }
-listJobs().then(setJobs)
+- `components/viewer/ContractViewer.tsx`
+- `components/shared/LoadingOverlay.tsx`
 
-// ✅ This correctly unwraps the array
-listJobs().then((res) => setJobs(res.jobs))
-```
+But based on what I can see, the most likely cause is that `fetchCanonicalBlob` returns a `Blob` but your page is passing it directly to `ContractViewer` as `canonical` — which expects a `CanonicalDocument` (parsed JSON object), not a raw Blob.
 
-If that's not it, also check `hooks/useJobList.ts` for the initial state type — it needs to be an array:
+Fix this in `page.tsx` — change how you parse the canonical data:
 
 ```ts
-// ❌ Wrong — object, not array
-const [jobs, setJobs] = useState({})
+// ❌ Current — passing raw Blob
+const c = await fetchCanonicalBlob(jobId);
+setCanonical(c);
 
-// ✅ Correct
-const [jobs, setJobs] = useState<JobRecord[]>([])
+// ✅ Fix — parse Blob to JSON first
+const blob = await fetchCanonicalBlob(jobId);
+const text = await blob.text();
+const c = JSON.parse(text) as CanonicalDocument;
+setCanonical(c);
 ```
 
-Here's the complete correct `useJobList.ts` to just replace it entirely:
+Apply that change in **both** places in your `page.tsx` where `fetchCanonicalBlob` is called — the initial load `useEffect` and the `handlePollingUpdate` callback.
+
+Also add a quick debug line temporarily to confirm data is arriving:
 
 ```ts
-import { useEffect, useState } from 'react';
-import { listJobs } from '@/lib/api/jobs';
-import type { JobRecord } from '@/lib/api/types';
-
-export function useJobList() {
-  const [jobs, setJobs] = useState<JobRecord[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-
-  const fetch = async () => {
-    setLoading(true);
-    try {
-      const res = await listJobs();
-      setJobs(res.jobs);   // ← unwrap .jobs here
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load jobs');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    void fetch();
-  }, []);
-
-  return { jobs, loading, error, refresh: fetch };
-}
+console.log('canonical loaded:', c);
+console.log('job:', job);
 ```
 
-Replace your current `useJobList.ts` with this and the `undefined` job_id issue on the dashboard will be gone.
+Check the browser console — if you see the data there, the issue is purely in `ContractViewer` not rendering it. Share `ContractViewer.tsx` and I'll fix that next.
