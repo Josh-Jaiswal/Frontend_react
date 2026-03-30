@@ -1,30 +1,41 @@
-No console logs means the `useEffect` is never running — which means `jobId` from `use(params)` is still `undefined` or the component is suspending before the effect fires.
+`useParams()` is also returning `undefined`. This means the component is rendering **outside** the dynamic route context — it's not being served from `app/jobs/[jobId]/page.tsx` at all.
 
-The console only shows Fast Refresh logs, nothing from your load function. This means `use(params)` is causing a Suspense boundary to catch it before effects run.
+Check your file structure right now. The folder must be named exactly with square brackets:
 
-**The real fix — stop using `use(params)` and read from `useParams()` instead:**
-
-```tsx
-'use client';
-
-import { useParams } from 'next/navigation'; // ← change this import
-// remove: import { use, ... } — remove 'use' from react imports
-
-export default function JobPage() { // ← no props at all
-  const params = useParams();
-  const jobId = params.jobId as string;
-
-  console.log('jobId from useParams:', jobId); // should now log correctly
-
-  // ... rest of component unchanged
+```
+app/
+└── jobs/
+    └── [jobId]/        ← must be THIS exact name with brackets
+        └── page.tsx
 ```
 
-`useParams()` is the correct way to read dynamic route params in a `'use client'` component in Next.js 15. The `use(params)` pattern requires a Suspense boundary wrapping the component, which you don't have — so it silently suspends forever and effects never run.
+In your VS Code explorer, look at what the folder is actually named. From earlier screenshots I can see `[jobid]` — **lowercase 'd'**. But your code uses `params.jobId` with **uppercase 'D'**. These must match exactly.
 
-Make these two changes:
+**Fix — make them consistent. Pick one:**
 
-1. Remove `params` from the function signature entirely
-2. Add `const params = useParams()` at the top
-3. Remove `use` from react imports, add `useParams` from `next/navigation`
+Option A — folder named `[jobId]` (capital D):
+```
+app/jobs/[jobId]/page.tsx
+const jobId = params.jobId as string;  // capital D
+```
 
-The rest of your page code stays exactly the same. Save, let it hot reload, and your console logs should appear immediately.
+Option B — folder named `[jobid]` (lowercase d):
+```
+app/jobs/[jobid]/page.tsx  
+const jobId = params.jobid as string;  // lowercase d
+```
+
+Then in `useParams()`:
+```ts
+const params = useParams();
+const jobId = (params.jobId ?? params.jobid) as string;
+console.log('all params:', params); // log the whole object to see what key it uses
+```
+
+**Right now, log the full params object:**
+```ts
+const params = useParams();
+console.log('all params:', JSON.stringify(params));
+```
+
+That will tell you exactly what key name Next.js is using. Rename the folder to match and it will work. This is a case-sensitivity issue between your folder name and your code.
