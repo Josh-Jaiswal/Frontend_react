@@ -1,46 +1,32 @@
-Two issues visible, one in the file and one from the error.
+The polling hook is fine — it has the `!jobId` guard. The bug is somewhere else.
 
-**Problem 1 — AppShell.tsx is a `.jsx` file saved without a type declaration**
+The `/jobs/undefined` requests are coming from `getJob` being called with `undefined`. This means `jobId` from `params` is actually `undefined` at runtime when navigating from the dashboard.
 
-The error says `AppShell.jsx implicitly has an 'any' type`. Your file is `.jsx` but TypeScript can't find its types. Rename it to `.tsx` and replace the content with this properly typed version:
+This is a Next.js App Router timing issue. In the App Router, `params` in a `'use client'` page component can be a Promise in newer Next.js versions. Add this to your `page.tsx` — share your `lib/api/jobs.ts` too but here's the fix to apply now:
 
-```tsx
-// components/layout/AppShell.tsx
-import type { ReactNode } from 'react';
-import { Header } from './Header';
-import { Footer } from './Footer';
+**Fix `app/jobs/[jobId]/page.tsx` — top of the component:**
 
-interface AppShellProps {
-  children: ReactNode;
-}
+```ts
+export default function JobPage({ params }: { params: { jobId: string } }) {
+  const { jobId } = params;
 
-export function AppShell({ children }: AppShellProps) {
-  return (
-    <div className="min-h-screen bg-white text-zinc-900">
-      <Header />
-      <main className="mx-auto w-full max-w-7xl px-4 py-6 md:px-6 md:py-8">
-        {children}
-      </main>
-      <Footer />
-    </div>
-  );
-}
-```
+  // Log it immediately to confirm
+  console.log('JobPage mounted with jobId:', jobId);
 
-**Problem 2 — `useRouter` doesn't exist in App Router**
-
-On line 4 of your `page.tsx` you have `import { useRouter } from ...` but in Next.js App Router, page components receive `params` directly as props — you don't need `useRouter` for reading the jobId. You already have the correct pattern on line 23 (`const { jobId } = params`), so just remove the `useRouter` import and any `useRouter()` call entirely.
-
-Also check that `tsconfig.json` has this — it's what enables the `@/` path alias:
-
-```json
-{
-  "compilerOptions": {
-    "paths": {
-      "@/*": ["./*"]
-    }
+  if (!jobId || jobId === 'undefined') {
+    return null;
   }
-}
+  // ... rest unchanged
 ```
 
-After renaming `AppShell.jsx` → `AppShell.tsx` and removing `useRouter`, the red underlines should clear.
+Also check your **dashboard "View" button** — this is the most likely real cause. In `components/dashboard/JobRow.tsx`, find where it navigates and confirm it's using the right field:
+
+```ts
+// ❌ Wrong — job.id might be undefined
+router.push(`/jobs/${job.id}`)
+
+// ✅ Correct — must match your API response shape
+router.push(`/jobs/${job.job_id}`)
+```
+
+Your API returns `job_id` (with underscore) not `id`. If the dashboard is passing `job.id` instead of `job.job_id`, that's exactly where the `undefined` comes from — before the page even mounts. Share `JobRow.tsx` and `lib/api/jobs.ts` and I'll confirm.
