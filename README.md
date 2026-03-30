@@ -1,25 +1,8 @@
-Two problems visible right now.
+Great progress! The backend is working perfectly — NDA and SOW both generated, job complete. The problem now is the **rewrite for `/jobs/:path*` is conflicting with your Next.js `/jobs/[jobId]` page route.**
 
-**Problem 1 — Request URL is `localhost:3000/undefined/analyze`**
+When you visit `localhost:3000/jobs/8777af5b-...`, Next.js is forwarding it to FastAPI instead of rendering your React page, and FastAPI returns the 401 JSON directly to the browser.
 
-The `undefined` in the URL means `API_BASE_PATH` is resolving to `undefined` at runtime. Look at your `env.ts` in image 2 — you have **two separate duplicate blocks** in the same file, and `API_KEY` on line 8 is reading `NEXT_PUBLIC_API_URL` instead of `NEXT_PUBLIC_API_KEY`. The file is a mess. Replace the entire `lib/env.ts` with just this:
-
-```ts
-// lib/env.ts
-export const API_BASE_PATH =
-  typeof window !== 'undefined'
-    ? ''  // client-side: use relative URLs via Next.js rewrite
-    : process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
-
-export const API_KEY =
-  process.env.NEXT_PUBLIC_API_KEY || 'GoldenEY1479';
-```
-
-Delete everything else in that file. The duplicate definitions are overwriting each other.
-
-**Problem 2 — The rewrite isn't matching**
-
-The 404 is coming from Next.js itself (`X-Nextjs-Action-Not-Found` in the response headers), meaning the rewrite in `next.config.js` never forwarded the request to FastAPI. Make sure your `next.config.js` looks exactly like this:
+Fix your `next.config.js` — the jobs rewrite needs a more specific prefix that doesn't collide with your page routes:
 
 ```js
 /** @type {import('next').NextConfig} */
@@ -31,15 +14,15 @@ const nextConfig = {
         destination: 'http://localhost:8000/analyze',
       },
       {
-        source: '/jobs/:path*',
+        source: '/api/jobs/:path*',
         destination: 'http://localhost:8000/jobs/:path*',
       },
       {
-        source: '/download/:path*',
+        source: '/api/download/:path*',
         destination: 'http://localhost:8000/download/:path*',
       },
       {
-        source: '/health',
+        source: '/api/health',
         destination: 'http://localhost:8000/health',
       },
     ];
@@ -49,12 +32,22 @@ const nextConfig = {
 module.exports = nextConfig;
 ```
 
-**Then hard restart — this is mandatory:**
+Then update `lib/api/jobs.ts` — all job/download calls need the `/api/` prefix now:
 
-```bash
-# Ctrl+C to stop, then:
-rm -rf .next
-npm run dev
+```ts
+// Change these path prefixes:
+getJob(id)        → '/api/jobs/' + id
+listJobs()        → '/api/jobs'
+downloadNda(id)   → '/api/download/' + id + '/nda'
+downloadSow(id)   → '/api/download/' + id + '/sow'
+getCanonical(id)  → '/api/download/' + id + '/canonical'
+regenerate(id)    → '/api/jobs/' + id + '/regenerate'
+// /analyze stays as-is (no conflict with pages)
 ```
 
-The `.next` cache will hold the old broken config otherwise. The `undefined` in the URL and the 404 both disappear once `env.ts` is clean and the dev server restarts fresh.
+Restart cleanly:
+```bash
+rm -rf .next && npm run dev
+```
+
+`localhost:3000/jobs/8777af5b-...` will now render your React workspace page, and API calls go through `/api/jobs/...` to FastAPI.
