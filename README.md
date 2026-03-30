@@ -1,33 +1,153 @@
-Good progress — the routing is now working (200 responses, correct job ID in the URL, no more `undefined`). The page is blank because `ContractViewer` is rendering nothing.
+The console says it clearly:
 
-The page is loading but the content isn't showing. I need to see these files to fix it:
-
-- `components/viewer/ContractViewer.tsx`
-- `components/shared/LoadingOverlay.tsx`
-
-But based on what I can see, the most likely cause is that `fetchCanonicalBlob` returns a `Blob` but your page is passing it directly to `ContractViewer` as `canonical` — which expects a `CanonicalDocument` (parsed JSON object), not a raw Blob.
-
-Fix this in `page.tsx` — change how you parse the canonical data:
-
-```ts
-// ❌ Current — passing raw Blob
-const c = await fetchCanonicalBlob(jobId);
-setCanonical(c);
-
-// ✅ Fix — parse Blob to JSON first
-const blob = await fetchCanonicalBlob(jobId);
-const text = await blob.text();
-const c = JSON.parse(text) as CanonicalDocument;
-setCanonical(c);
+```
+JobPage mounted with jobId: undefined
 ```
 
-Apply that change in **both** places in your `page.tsx` where `fetchCanonicalBlob` is called — the initial load `useEffect` and the `handlePollingUpdate` callback.
+Even though the URL has the correct ID (`63e9785c-48e3-4d1c-a3cf-8822ac92f6a2`), `params.jobId` is `undefined`. This is a **Next.js 15 breaking change** — in Next.js 15, `params` is now a Promise and must be awaited.
 
-Also add a quick debug line temporarily to confirm data is arriving:
+The root cause is confirmed. Replace your entire `app/jobs/[jobId]/page.tsx` with this — it uses `use()` to unwrap params correctly for Next.js 15:
 
-```ts
-console.log('canonical loaded:', c);
-console.log('job:', job);
+```tsx
+'use client';
+
+import { use, useCallback, useEffect, useMemo, useState } from 'react';
+import { useRouter } from 'next/navigation';
+import { toast } from 'sonner';
+import { AppShell } from '@/components/layout/AppShell';
+import { NavTabs } from '@/components/layout/NavTabs';
+import { PageHero } from '@/components/shared/PageHero';
+import { ErrorState } from '@/components/shared/ErrorState';
+import { LoadingOverlay } from '@/components/shared/LoadingOverlay';
+import { ContractViewer } from '@/components/viewer/ContractViewer';
+import { fetchCanonicalBlob, getJob } from '@/lib/api/jobs';
+import { APIError } from '@/lib/api/client';
+import type { CanonicalDocument, JobRecord } from '@/lib/api/types';
+import { useAppStore } from '@/store/useAppStore';
+import { useJobPolling } from '@/hooks/useJobPolling';
+
+export default function JobPage({
+  params,
+}: {
+  params: Promise<{ jobId: string }>;
+}) {
+  const { jobId } = use(params); // ← Next.js 15: params is a Promise
+  const router = useRouter();
+
+  const setJobId = useAppStore((s) => s.setJobId);
+  const resetEdits = useAppStore((s) => s.resetEdits);
+
+  const [job, setJob] = useState<JobRecord | null>(null);
+  const [canonical, setCanonical] = useState<CanonicalDocument | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!jobId) return;
+    setJobId(jobId);
+    resetEdits();
+  }, [jobId, resetEdits, setJobId]);
+
+  // Helper to parse canonical blob → JSON
+  const loadCanonical = useCallback(async () => {
+    try {
+      const blob = await fetchCanonicalBlob(jobId);
+      const text = await blob.text();
+      return JSON.parse(text) as CanonicalDocument;
+    } catch {
+      return null;
+    }
+  }, [jobId]);
+
+  // Initial load
+  useEffect(() => {
+    if (!jobId) return;
+    let mounted = true;
+
+    const load = async () => {
+      setLoading(true);
+      setError(null);
+      try {
+        const result = await getJob(jobId);
+        if (!mounted) return;
+        setJob(result);
+        if (result.status === 'complete') {
+          const c = await loadCanonical();
+          if (mounted) setCanonical(c);
+        }
+      } catch (err) {
+        if (!mounted) return;
+        if (err instanceof APIError && err.status === 404) {
+          toast.error('Job not found or expired. Please re-upload the file.');
+          router.replace('/jobs');
+          return;
+        }
+        setError(err instanceof Error ? err.message : 'Unable to load job');
+      } finally {
+        if (mounted) setLoading(false);
+      }
+    };
+
+    void load();
+    return () => { mounted = false; };
+  }, [jobId, loadCanonical, router]);
+
+  const handlePollingUpdate = useCallback(
+    async (updated: JobRecord) => {
+      setJob(updated);
+      if (updated.status === 'complete') {
+        const c = await loadCanonical();
+        setCanonical(c);
+      }
+    },
+    [loadCanonical]
+  );
+
+  const handleNotFound = useCallback(() => {
+    toast.error('Job not found or expired.');
+    router.replace('/jobs');
+  }, [router]);
+
+  useJobPolling(jobId, handlePollingUpdate, {
+    enabled: Boolean(jobId),
+    onNotFound: handleNotFound,
+    onError: (msg) => toast.error(msg),
+  });
+
+  const refreshJob = useCallback(async () => {
+    const fresh = await getJob(jobId);
+    setJob(fresh);
+    if (fresh.status === 'complete') {
+      const c = await loadCanonical();
+      setCanonical(c);
+    }
+  }, [jobId, loadCanonical]);
+
+  const workspace = useMemo(() => {
+    if (loading) return <LoadingOverlay label="Loading job workspace…" />;
+    if (error || !job) return (
+      <ErrorState
+        message={error || 'Job unavailable'}
+        onRetry={() => router.refresh()}
+      />
+    );
+    return (
+      <ContractViewer job={job} canonical={canonical} onRefresh={refreshJob} />
+    );
+  }, [canonical, error, job, loading, refreshJob, router]);
+
+  return (
+    <AppShell>
+      <NavTabs current="jobs" />
+      <PageHero
+        eyebrow="Workspace"
+        title={job?.file_name || 'Job workspace'}
+        subtitle="Resolve conflicts, fill missing values, inspect canonical JSON and download outputs."
+      />
+      <div className="mt-6">{workspace}</div>
+    </AppShell>
+  );
+}
 ```
 
-Check the browser console — if you see the data there, the issue is purely in `ContractViewer` not rendering it. Share `ContractViewer.tsx` and I'll fix that next.
+The single change that fixes everything is `params: Promise<{ jobId: string }>` and `const { jobId } = use(params)` instead of destructuring directly. Next.js 15 made params async — your old code was getting `undefined` because it tried to read the value synchronously before it resolved.
