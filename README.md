@@ -1,32 +1,55 @@
-The polling hook is fine — it has the `!jobId` guard. The bug is somewhere else.
+`types.ts` and `jobs.ts` are both correct. `job_id` is properly typed, `listJobs` returns `JobsListResponse` with a `jobs` array.
 
-The `/jobs/undefined` requests are coming from `getJob` being called with `undefined`. This means `jobId` from `params` is actually `undefined` at runtime when navigating from the dashboard.
-
-This is a Next.js App Router timing issue. In the App Router, `params` in a `'use client'` page component can be a Promise in newer Next.js versions. Add this to your `page.tsx` — share your `lib/api/jobs.ts` too but here's the fix to apply now:
-
-**Fix `app/jobs/[jobId]/page.tsx` — top of the component:**
+The bug is in **`useJobList.ts`** — I'd bet it's doing `setJobs(res)` instead of `setJobs(res.jobs)`. Go check that file right now:
 
 ```ts
-export default function JobPage({ params }: { params: { jobId: string } }) {
-  const { jobId } = params;
+// ❌ This sets jobs to the whole response object { total, jobs: [...] }
+listJobs().then(setJobs)
 
-  // Log it immediately to confirm
-  console.log('JobPage mounted with jobId:', jobId);
-
-  if (!jobId || jobId === 'undefined') {
-    return null;
-  }
-  // ... rest unchanged
+// ✅ This correctly unwraps the array
+listJobs().then((res) => setJobs(res.jobs))
 ```
 
-Also check your **dashboard "View" button** — this is the most likely real cause. In `components/dashboard/JobRow.tsx`, find where it navigates and confirm it's using the right field:
+If that's not it, also check `hooks/useJobList.ts` for the initial state type — it needs to be an array:
 
 ```ts
-// ❌ Wrong — job.id might be undefined
-router.push(`/jobs/${job.id}`)
+// ❌ Wrong — object, not array
+const [jobs, setJobs] = useState({})
 
-// ✅ Correct — must match your API response shape
-router.push(`/jobs/${job.job_id}`)
+// ✅ Correct
+const [jobs, setJobs] = useState<JobRecord[]>([])
 ```
 
-Your API returns `job_id` (with underscore) not `id`. If the dashboard is passing `job.id` instead of `job.job_id`, that's exactly where the `undefined` comes from — before the page even mounts. Share `JobRow.tsx` and `lib/api/jobs.ts` and I'll confirm.
+Here's the complete correct `useJobList.ts` to just replace it entirely:
+
+```ts
+import { useEffect, useState } from 'react';
+import { listJobs } from '@/lib/api/jobs';
+import type { JobRecord } from '@/lib/api/types';
+
+export function useJobList() {
+  const [jobs, setJobs] = useState<JobRecord[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  const fetch = async () => {
+    setLoading(true);
+    try {
+      const res = await listJobs();
+      setJobs(res.jobs);   // ← unwrap .jobs here
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to load jobs');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    void fetch();
+  }, []);
+
+  return { jobs, loading, error, refresh: fetch };
+}
+```
+
+Replace your current `useJobList.ts` with this and the `undefined` job_id issue on the dashboard will be gone.
