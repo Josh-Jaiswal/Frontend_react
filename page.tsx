@@ -1,79 +1,138 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
 
-import { PageHero } from '@/components/shared/PageHero';
 import { AppShell } from '@/components/layout/AppShell';
 import { NavTabs } from '@/components/layout/NavTabs';
-import { UploadDropzone } from '@/components/upload/UploadDropzone';
-import { ContractTypeSelect } from '@/components/upload/ContractTypeSelect';
-import { UploadHelp } from '@/components/upload/UploadHelp';
-import { Button } from '@/components/ui/button';
-import { Card, CardBody } from '@/components/ui/card';
-import { useUploadJob } from '@/hooks/useUploadJob';
+import { PageHero } from '@/components/shared/PageHero';
+import { ErrorState } from '@/components/shared/ErrorState';
+import { LoadingOverlay } from '@/components/shared/LoadingOverlay';
+import { ContractViewer } from '@/components/viewer/ContractViewer';
+import { fetchCanonical, getJob } from '@/lib/api/jobs';
+import { APIError } from '@/lib/api/client';
+import type { CanonicalDocument, JobRecord } from '@/lib/api/types';
 import { useAppStore } from '@/store/useAppStore';
-import type { ContractType } from '@/lib/api/types';
+import { useJobPolling } from '@/hooks/useJobPolling';
 
-export default function HomePage() {
+export default function JobPage({ params }: { params: { jobId: string } }) {
   const router = useRouter();
-  const [file, setFile] = useState<File | null>(null);
-  const [contractType, setContractType] = useState<ContractType>('auto');
-  const { submit, loading } = useUploadJob();
+  const { jobId } = params;
   const setJobId = useAppStore((s) => s.setJobId);
-  const canSubmit = useMemo(() => Boolean(file) && !loading, [file, loading]);
+  const resetEdits = useAppStore((s) => s.resetEdits);
 
-  const onSubmit = async () => {
-    if (!file) return;
+  const [job, setJob] = useState<JobRecord | null>(null);
+  const [canonical, setCanonical] = useState<CanonicalDocument | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
-    try {
-      const result = await submit(file, contractType);
-      setJobId(result.job_id);
-      toast.success('Analysis started');
-      router.push(`/jobs/${result.job_id}`);
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Upload failed');
+  useEffect(() => {
+    setJobId(jobId);
+    resetEdits();
+  }, [jobId, resetEdits, setJobId]);
+
+  useEffect(() => {
+    let mounted = true;
+
+    const load = async () => {
+      setLoading(true);
+      setError(null);
+
+      try {
+        const result = await getJob(jobId);
+        if (!mounted) return;
+        setJob(result);
+
+        if (result.status === 'complete') {
+          try {
+            const c = await fetchCanonical(jobId);
+            if (mounted) setCanonical(c);
+          } catch {
+            if (mounted) setCanonical(null);
+          }
+        }
+      } catch (err) {
+        if (!mounted) return;
+        if (err instanceof APIError && err.status === 404) {
+          toast.error('Job not found or expired. Please re-upload the file.');
+          router.replace('/jobs');
+          return;
+        }
+        setError(err instanceof Error ? err.message : 'Unable to load job');
+      } finally {
+        if (mounted) setLoading(false);
+      }
+    };
+
+    void load();
+    return () => {
+      mounted = false;
+    };
+  }, [jobId, router]);
+
+  const handlePollingUpdate = useCallback(async (updated: JobRecord) => {
+    setJob(updated);
+
+    if (updated.status === 'complete') {
+      try {
+        const c = await fetchCanonical(jobId);
+        setCanonical(c);
+      } catch {
+        setCanonical(null);
+      }
     }
-  };
+  }, [jobId]);
+
+  const handleNotFound = useCallback(() => {
+    toast.error('Job not found or expired. Please re-upload the file.');
+    router.replace('/jobs');
+  }, [router]);
+
+  const handlePollingError = useCallback((message: string) => {
+    toast.error(message);
+  }, []);
+
+  useJobPolling(jobId, handlePollingUpdate, {
+    enabled: Boolean(jobId),
+    onNotFound: handleNotFound,
+    onError: handlePollingError,
+  });
+
+  const refreshJob = useCallback(async () => {
+    const fresh = await getJob(jobId);
+    setJob(fresh);
+    if (fresh.status === 'complete') {
+      try {
+        const c = await fetchCanonical(jobId);
+        setCanonical(c);
+      } catch {
+        setCanonical(null);
+      }
+    }
+  }, [jobId]);
+
+  const workspace = useMemo(() => {
+    if (loading) {
+      return <LoadingOverlay label="Loading job workspace…" />;
+    }
+
+    if (error || !job) {
+      return <ErrorState message={error || 'Job unavailable'} onRetry={() => router.refresh()} />;
+    }
+
+    return <ContractViewer job={job} canonical={canonical} onRefresh={refreshJob} />;
+  }, [canonical, error, job, loading, refreshJob, router]);
 
   return (
     <AppShell>
-      <NavTabs current="home" />
+      <NavTabs current="jobs" />
       <PageHero
-        eyebrow="Contract intelligence"
-        title="Analyze contracts and generate NDA or SOW outputs"
-        subtitle="Upload a document, run extraction, inspect conflicts, fill gaps, and regenerate polished contract outputs in a single workspace."
+        eyebrow="Workspace"
+        title={job?.file_name || 'Job workspace'}
+        subtitle="Resolve conflicts, fill missing values, inspect the canonical JSON and download outputs."
       />
-      <div className="mt-6 grid gap-6 lg:grid-cols-[1.2fr_0.8fr]">
-        <div className="space-y-6">
-          <UploadDropzone file={file} onFile={setFile} loading={loading} />
-          <Card>
-            <CardBody className="grid gap-4 md:grid-cols-2">
-              <ContractTypeSelect value={contractType} onChange={setContractType} />
-              <div className="flex items-end justify-end">
-                <Button variant="primary" onClick={() => void onSubmit()} disabled={!canSubmit}>
-                  {loading ? 'Starting analysis…' : 'Start analysis'}
-                </Button>
-              </div>
-            </CardBody>
-          </Card>
-        </div>
-
-        <div className="space-y-6">
-          <UploadHelp />
-          <Card>
-            <CardBody>
-              <h3 className="text-base font-semibold text-zinc-900">What happens next</h3>
-              <ol className="mt-3 space-y-3 text-sm leading-6 text-zinc-600">
-                <li>1. File uploads to the backend analyzer.</li>
-                <li>2. A job is created and polled automatically.</li>
-                <li>3. The workspace opens with summary, conflicts, missing fields, source preview and downloads.</li>
-              </ol>
-            </CardBody>
-          </Card>
-        </div>
-      </div>
+      <div className="mt-6">{workspace}</div>
     </AppShell>
   );
 }
