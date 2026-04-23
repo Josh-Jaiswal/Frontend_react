@@ -1,45 +1,209 @@
-1. api.py:
+Here’s a high-quality Copilot / DALL·E style prompt to recreate this exact McKinsey/Bain-style workflow slide:
 
-"""
-api.py
-──────
-FastAPI endpoint for the Contract Intelligence Pipeline.
 
-Accepts file uploads, runs the full pipeline asynchronously,
-and returns generated NDA and SOW PDFs for download.
+---
 
-Usage (local):
-    pip install fastapi uvicorn python-multipart
-    python api.py
+Prompt:
 
-Then open: http://localhost:8000/docs  (interactive API docs)
+Create a clean, top-tier consulting-style workflow diagram titled:
 
-Endpoints:
-    POST /analyze                   — upload file, get job_id back
-    GET  /jobs/{job_id}             — check status, get download URLs when ready
-    GET  /jobs                      — list all jobs
-    DELETE /jobs/{job_id}           — delete a job and its files
-    POST /jobs/{job_id}/regenerate  — re-run PDF generation with overrides
-    GET  /download/{job_id}/nda     — download NDA PDF
-    GET  /download/{job_id}/sow     — download SOW PDF
-    GET  /download/{job_id}/canonical — download canonical JSON
-    GET  /download/{job_id}/source  — download original uploaded file
-    GET  /graph/{job_id}/parties    — graph: parties linked to a contract
-    GET  /graph/{job_id}/obligations — graph: obligations linked to a contract
-    GET  /graph/{job_id}/deliverables — graph: deliverables linked to a contract
-    GET  /graph/party/{party_name}  — graph: all contracts involving a party
-    GET  /graph/{job_id}/full       — graph: all vertices + edges for a contract
-    POST /graph/query               — graph: run a raw Gremlin query (power users)
-    GET  /health                    — health check
-"""
+“CONTRACT INTELLIGENCE PLATFORM”
+Subtitle: “TOP CONSULTANT LEVEL WORKFLOW DESIGN”
 
-import logging
-import os
-import shutil
-import uuid
-from datetime import datetime, timezone
-from pathlib import Path
-from typing import List, Literal
+Overall Style:
+
+McKinsey / Bain / BCG presentation aesthetic
+
+Minimal, structured, corporate
+
+White background with dark navy blue headers
+
+Rounded rectangles, subtle shadows
+
+Professional icons (flat, modern)
+
+Clean grid layout with clear alignment
+
+Use realistic logos for Azure, OpenAI, Cosmos DB, FastAPI, Streamlit
+
+
+
+---
+
+Layout Structure:
+
+1. Three Horizontal Sections (Top Row):
+
+Create three large columns:
+
+
+---
+
+LEFT: INPUT LAYER
+
+Dark blue header bar with white text
+
+Inside vertical list with icons:
+
+PDF (Adobe icon)
+
+DOCX (Word icon)
+
+Email (Outlook icon)
+
+Audio (microphone icon, labeled GPT-4o)
+
+Azure Storage (Azure icon)
+
+
+Arrow pointing right →
+
+
+---
+
+CENTER: PROCESSING LAYER
+
+Dark blue header
+
+Inside 3 main boxes horizontally:
+
+1. Azure Content Understanding
+
+Azure logo
+
+Text: “Azure Content Understanding”
+
+Subtext: “+ Mapping”
+
+
+
+2. OpenAI Processing
+
+OpenAI logo
+
+Text: “OpenAI (GPT-4o)”
+
+Subtext: “AI Processing”
+
+
+
+3. Azure Cosmos DB
+
+Cosmos DB logo
+
+Text: “Azure Cosmos DB”
+
+Subtext: “(Jobs + Graph)” “Knowledge Graph”
+
+
+
+
+Below them (centered):
+
+Box labeled: Merge Engine (Conflict Resolve) with a scale icon ⚖️
+
+
+Arrows:
+
+Azure → OpenAI → Cosmos DB
+
+OpenAI ↓ Merge Engine
+
+Azure ↓ Merge Engine
+
+Cosmos DB ↓ Merge Engine
+
+
+
+---
+
+RIGHT: OUTPUT LAYER
+
+Dark blue header
+
+List with icons:
+
+Canonical JSON {}
+
+Knowledge (check icon)
+
+Graph (nodes icon, Gremlin)
+
+AI Assistant (chat bubble)
+
+NDA/SOW PDFs (PDF icon)
+
+
+
+---
+
+2. MIDDLE STRIP: API LAYER
+
+Full-width horizontal bar
+
+Split into two:
+
+Left: FastAPI (lightning icon) → “Backend API”
+
+Right: Streamlit (paper plane icon) → “UI / Frontend”
+
+
+
+---
+
+3. BOTTOM STRIP: END-TO-END WORKFLOW SUMMARY
+
+Horizontal flow with icons and arrows:
+
+1. Ingest Documents (file icon)
+
+
+2. Extract & Understand Content (Azure logo)
+
+
+3. AI Processing & Mapping (OpenAI logo)
+
+
+4. Store & Connect Knowledge (Cosmos DB logo)
+
+
+5. Resolve Conflicts & Merge (scale icon)
+
+
+6. Deliver Intelligence & Outputs (JSON + graph + chat + PDF icons)
+
+
+7. APIs & UI Access (dashboard screen icon)
+
+
+
+
+---
+
+Design Details:
+
+Use consistent spacing and alignment
+
+Use thin arrows between steps
+
+Use rounded containers with light gray fill
+
+Typography: bold headings, clean sans-serif
+
+Keep it boardroom / investor presentation ready
+
+
+
+---
+
+If you want, I can also tweak this into:
+
+PowerPoint-ready layout
+
+Figma wireframe prompt
+
+Animated version prompt (for video slides)
+
 
 import uvicorn
 from dotenv import load_dotenv
